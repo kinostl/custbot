@@ -5,7 +5,7 @@ const { GoogleSpreadsheet } = require("google-spreadsheet");
 const client = new Discord.Client();
 
 async function callGoogle(message, args) {
-  const sent = await message.channel.send("Looking up...");
+  message.channel.startTyping();
   const tab_name = args.shift().toLowerCase();
   const entity_name = args.shift().toLowerCase();
   const doc = new GoogleSpreadsheet("<the sheet ID from the url>");
@@ -23,14 +23,21 @@ async function callGoogle(message, args) {
     let row = db.find((el) => {
       el.name == entity_name;
     });
+    let entity_details = Object.entries(row).map((col) => ({
+      name: col[0],
+      value: col[1],
+    }));
+    entity_details.shift();
     /** output the embed */
     const embed = new Discord.MessageEmbed()
       .setTitle(entity_name)
       .addFields(entity_details);
-    await message.edit(embed);
+    await message.reply(embed);
   } catch (e) {
     /** let them know what didn't exist or that there might be a typo */
+    await message.reply(e);
   }
+  message.channel.stopTyping();
 }
 
 client.once("ready", () => {
