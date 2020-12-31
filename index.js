@@ -1,5 +1,5 @@
 const Discord = require("discord.js");
-const { prefix, token, GOOGLE_API_KEY} = process.env;
+const { DISCORD_PREFIX, DISCORD_TOKEN, GOOGLE_API_KEY} = process.env;
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 
 const client = new Discord.Client();
@@ -56,10 +56,10 @@ client.once("ready", () => {
 });
 
 client.on("message", (message) => {
-  if (!message.content.startsWith(prefix) || message.author.bot) return;
+  if (!message.content.startsWith(DISCORD_PREFIX) || message.author.bot) return;
 
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
+  const args = message.content.slice(DISCORD_PREFIX.length).trim().split(/ +/);
   sendEntityInfo(message, args);
 });
 
-client.login(token);
+client.login(DISCORD_TOKEN);
