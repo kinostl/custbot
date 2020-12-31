@@ -16,7 +16,7 @@ async function getEntityInfo(channel, tab_name) {
   db = await db.getRows();
   /** check if row exists in tab */
   let row = db.find((el) => {
-    el.name == entity_name;
+    el.name.startsWith(entity_name);
   });
   let entity_details = Object.entries(row).map((col) => ({
     name: col[0],
