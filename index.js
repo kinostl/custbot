@@ -16,7 +16,7 @@ async function getEntityInfo(channel, tab_name) {
   db = await db.getRows();
   /** check if row exists in tab */
   let row = db.find((el) => {
-    el.name.startsWith(entity_name);
+    el.name.toLowerCase().startsWith(entity_name);
   });
   let entity_details = Object.entries(row).map((col) => ({
     name: col[0],
@@ -32,7 +32,7 @@ async function sendEntityInfo(message, args) {
   const entity_name = args.shift().toLowerCase();
 
   try {
-    let entity_details = await getEntityInfo(message.channel, tab_name);
+    let entity_details = await getEntityInfo(message.channel, tab_name, entity_name);
     /** output the embed */
     const embed = new Discord.MessageEmbed()
       .setTitle(entity_name)
