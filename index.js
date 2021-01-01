@@ -10,12 +10,11 @@ const client = new Discord.Client();
 const custUrls = new Map();
 const custPrefixes = new Map();
 
-async function getDoc(message, args) {
+async function getDoc(message) {
   /** get channel info */
   let sheetId = sheetIds.get(message.channel.id);
   if (!sheetId) sheetId = sheetIds.get(message.guild.id);
-  if (!sheetId)
-  return undefined;
+  if (!sheetId) return undefined;
 
   /** get channels sheet */
   const doc = new GoogleSpreadsheet(sheetId);
@@ -29,7 +28,7 @@ async function getEntityInfo(message, args) {
   const entity_name = args.shift().toLowerCase();
 
   /** get channel info */
-  const doc = await getDoc(message, args);
+  const doc = await getDoc(message);
   if (!doc)
     return await message.reply(
       "This channel or guild has no associated google sheets url."
@@ -86,7 +85,9 @@ async function sendEntityInfo(message, args) {
 
 const commands = {
   set: async function setUrl(message, args) {
-    let url = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(args[1]);
+    let url = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(
+      args[1].trim()
+    );
     if (url) {
       url = url[1];
     } else {
@@ -114,11 +115,11 @@ const commands = {
   },
   help: async function help(message, args) {
     /** get channel info */
-    const doc = await getDoc(message, args);
+    const doc = await getDoc(message);
     if (doc) {
       const custReadMe =
         readMe +
-        ("\n**Custom Commands\n" + Object.keys(doc.sheetsByTitle).join(","));
+        ("\n**Custom Commands\n" + Object.keys(doc.sheetsByTitle).join(", "));
 
       return await message.reply(custReadMe);
     } else {
