@@ -54,8 +54,8 @@ async function getEntityInfo(message, args) {
   /** check if row exists in tab */
   let row = sheets.find((el) => {
     return (
-      el.Name.toLowerCase().startsWith(entity_name) ||
-      el.name.toLowerCase().startsWith(entity_name)
+      (el.Name && el.Name.toLowerCase().startsWith(entity_name)) ||
+      (el.name && el.name.toLowerCase().startsWith(entity_name))
     );
   });
 
@@ -103,7 +103,9 @@ const commands = {
       return await message.reply("Not a valid url");
     }
     const isGlobal =
-      args[2].toLowerCase().startsWith("guild") && message.guild.available;
+      args[2] &&
+      args[2].toLowerCase().startsWith("guild") &&
+      message.guild.available;
     const associatedId = isGlobal ? message.guild.id : message.channel.id;
 
     custUrls.set(associatedId, url);
@@ -112,7 +114,9 @@ const commands = {
   prefix: async function setPrefix(message, args) {
     let prefix = args[1].trim();
     const isGlobal =
-      args[2].toLowerCase().startsWith("guild") && message.guild.available;
+      args[2] &&
+      args[2].toLowerCase().startsWith("guild") &&
+      message.guild.available;
     const associatedId = isGlobal ? message.guild.id : message.channel.id;
     if (!prefix) {
       const foundPrefix = custPrefixes.get(associatedId);
@@ -128,7 +132,7 @@ const commands = {
     if (doc) {
       const custReadMe =
         readMe +
-        ("\n**Custom Commands\n" + Object.keys(doc.sheetsByTitle).join(", "));
+        ("\n\n**Custom Commands**\n" + Object.keys(doc.sheetsByTitle).join(", "));
 
       return await message.reply(custReadMe);
     } else {
@@ -158,7 +162,7 @@ client.on("message", async (message) => {
 client.login(DISCORD_TOKEN);
 
 function serialize(map) {
-  return JSON.stringify(Array.from(Object.entries(map)));
+  return JSON.stringify(Array.from(map.entries()));
 }
 
 function handleExit(exitCode) {
