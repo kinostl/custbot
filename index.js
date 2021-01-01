@@ -106,6 +106,19 @@ const commands = {
       args[2] &&
       args[2].toLowerCase().startsWith("guild") &&
       message.guild.available;
+    if (
+      isGlobal &&
+      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)
+    )
+      return await message.reply(
+        "Sorry, you do not have permissions to make guild level decisions."
+      );
+    if (
+      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_CHANNELS)
+    )
+      return await message.reply(
+        "Sorry, you do not have permissions to make channel level decisions."
+      );
     const associatedId = isGlobal ? message.guild.id : message.channel.id;
 
     custUrls.set(associatedId, url);
@@ -117,6 +130,19 @@ const commands = {
       args[2] &&
       args[2].toLowerCase().startsWith("guild") &&
       message.guild.available;
+    if (
+      isGlobal &&
+      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)
+    )
+      return await message.reply(
+        "Sorry, you do not have permissions to make guild level decisions."
+      );
+    if (
+      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_CHANNELS)
+    )
+      return await message.reply(
+        "Sorry, you do not have permissions to make channel level decisions."
+      );
     const associatedId = isGlobal ? message.guild.id : message.channel.id;
     if (!prefix) {
       const foundPrefix = custPrefixes.get(associatedId);
