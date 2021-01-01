@@ -1,26 +1,50 @@
 const Discord = require("discord.js");
 const { DISCORD_PREFIX, DISCORD_TOKEN, GOOGLE_API_KEY } = process.env;
 const { GoogleSpreadsheet } = require("google-spreadsheet");
+const fs = require("fs");
+
+const readMe = fs.readFileSync("./README.md", "utf8");
 
 const client = new Discord.Client();
 
-async function getEntityInfo(channel, tab_name, entity_name) {
+const custUrls = new Map();
+const custPrefixes = new Map();
+
+async function getDoc(message, args) {
   /** get channel info */
+  let sheetId = sheetIds.get(message.channel.id);
+  if (!sheetId) sheetId = sheetIds.get(message.guild.id);
+  if (!sheetId)
+  return undefined;
+
   /** get channels sheet */
-  const doc = new GoogleSpreadsheet("THIS WILL BE CONFIGURABLE");
+  const doc = new GoogleSpreadsheet(sheetId);
   doc.useApiKey(GOOGLE_API_KEY);
   await doc.loadInfo();
+  return doc;
+}
+
+async function getEntityInfo(message, args) {
+  const tab_name = args.shift().toLowerCase();
+  const entity_name = args.shift().toLowerCase();
+
+  /** get channel info */
+  const doc = await getDoc(message, args);
+  if (!doc)
+    return await message.reply(
+      "This channel or guild has no associated google sheets url."
+    );
 
   /** check if tab exists */
-  let db = doc.sheetsByTitle;
-  let correct_tab_name = Object.keys(db).find((table) =>
+  let sheets = doc.sheetsByTitle;
+  let correct_tab_name = Object.keys(sheets).find((table) =>
     table.toLowerCase().startsWith(tab_name)
   );
-  db = db[correct_tab_name];
-  db = await db.getRows();
+  sheets = sheets[correct_tab_name];
+  sheets = await sheets.getRows();
 
   /** check if row exists in tab */
-  let row = db.find((el) => {
+  let row = sheets.find((el) => {
     return (
       el.Name.toLowerCase().startsWith(entity_name) ||
       el.name.toLowerCase().startsWith(entity_name)
@@ -43,15 +67,9 @@ async function getEntityInfo(channel, tab_name, entity_name) {
 
 async function sendEntityInfo(message, args) {
   message.channel.startTyping();
-  const tab_name = args.shift().toLowerCase();
-  const entity_name = args.shift().toLowerCase();
 
   try {
-    let entity_details = await getEntityInfo(
-      message.channel,
-      tab_name,
-      entity_name
-    );
+    let entity_details = await getEntityInfo(message, args);
 
     /** output the embed */
     const embed = new Discord.MessageEmbed().addFields(entity_details);
@@ -66,15 +84,65 @@ async function sendEntityInfo(message, args) {
   }
 }
 
+const commands = {
+  set: async function setUrl(message, args) {
+    let url = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(args[1]);
+    if (url) {
+      url = url[1];
+    } else {
+      return await message.reply("Not a valid url");
+    }
+    const isGlobal =
+      args[2].toLowerCase().startsWith("guild") && message.guild.available;
+    const associatedId = isGlobal ? message.guild.id : message.channel.id;
+
+    custUrls.set(associatedId, url);
+    return await message.reply("Custom URL set.");
+  },
+  prefix: async function setPrefix(message, args) {
+    let prefix = args[1].trim();
+    const isGlobal =
+      args[2].toLowerCase().startsWith("guild") && message.guild.available;
+    const associatedId = isGlobal ? message.guild.id : message.channel.id;
+    if (!prefix) {
+      const foundPrefix = custPrefixes.get(associatedId);
+      if (!foundPrefix) return await message.reply(`Prefix is ${foundPrefix}`);
+      return await message.reply(`Prefix is ${DISCORD_PREFIX}`);
+    }
+    custPrefixes.set(associatedId, prefix);
+    return await message.reply(`Prefix has been updated to \`${prefix}\``);
+  },
+  help: async function help(message, args) {
+    /** get channel info */
+    const doc = await getDoc(message, args);
+    if (doc) {
+      const custReadMe =
+        readMe +
+        ("\n**Custom Commands\n" + Object.keys(doc.sheetsByTitle).join(","));
+
+      return await message.reply(custReadMe);
+    } else {
+      return await message.reply(readMe);
+    }
+  },
+};
+
 client.once("ready", () => {
   console.log("Ready!");
 });
 
 client.on("message", async (message) => {
-  if (!message.content.startsWith(DISCORD_PREFIX) || message.author.bot) return;
+  let prefix = custPrefixes.get(message.channel.id);
+  if (!prefix) prefix = custPrefixes.get(message.guild.id);
+  if (!prefix) prefix = DISCORD_PREFIX;
+  if (!message.content.startsWith(prefix) || message.author.bot) return;
 
-  const args = message.content.slice(DISCORD_PREFIX.length).trim().split(/ +/);
-  await sendEntityInfo(message, args);
+  const args = message.content.slice(prefix.length).trim().split(/ +/);
+  if (Object.keys(commands).includes(args[0])) {
+    return await commands[args[0]](message, args);
+  } else {
+    return await sendEntityInfo(message, args);
+  }
 });
 
 client.login(DISCORD_TOKEN);
