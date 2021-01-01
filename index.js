@@ -8,11 +8,11 @@ if (!DISCORD_PREFIX || !DISCORD_TOKEN || !GOOGLE_API_KEY) {
   return process.exit(0);
 }
 
-const readMe = fs.readFileSync("./README.md");
+const readMe = fs.readFileSync("./README.md", "utf8");
 
 /**load from file */
-const loadedUrls = fs.readFileSync("./custUrls.js");
-const loadedPrefixes = fs.readFileSync("./custPrefixes.js");
+const loadedUrls = JSON.parse(fs.readFileSync("./custUrls.js", "utf8"));
+const loadedPrefixes = JSON.parse(fs.readFileSync("./custPrefixes.js", "utf8"));
 
 const custUrls = new Map(loadedUrls);
 const custPrefixes = new Map(loadedPrefixes);
@@ -21,8 +21,8 @@ const client = new Discord.Client();
 
 async function getDoc(message) {
   /** get channel info */
-  let sheetId = sheetIds.get(message.channel.id);
-  if (!sheetId) sheetId = sheetIds.get(message.guild.id);
+  let sheetId = custUrls.get(message.channel.id);
+  if (!sheetId) sheetId = custUrls.get(message.guild.id);
   if (!sheetId) return undefined;
 
   /** get channels sheet */
@@ -165,12 +165,27 @@ function handleExit(exitCode) {
   /**write to file */
   const serializedCustUrls = serialize(custUrls);
   const serializedCustPrefixes = serialize(custPrefixes);
-  fs.writeFileSync('./custUrls.js',serializedCustUrls);
-  fs.writeFileSync('./custPrefixes.js',serializedCustPrefixes);
+  fs.writeFileSync("./custUrls.js", serializedCustUrls, "utf8");
+  fs.writeFileSync("./custPrefixes.js", serializedCustPrefixes, "utf8");
+  console.log("Files written. Closing.");
   process.exit(exitCode);
 }
 
-process.on("uncaughtException", handleExit(1));
-process.on("unhandledRejection", handleExit(1));
-process.on("SIGTERM", handleExit(0));
-process.on("SIGINT", handleExit(0));
+process.on("uncaughtException", (err, origin) => {
+  console.error(err);
+  console.error(origin);
+  handleExit(1);
+});
+process.on("unhandledRejection", (err, origin) => {
+  console.error(err);
+  console.error(origin);
+  handleExit(1);
+});
+process.on("SIGTERM", () => {
+  console.log("Shutting down");
+  handleExit(0);
+});
+process.on("SIGINT", () => {
+  console.log("Shutting down");
+  handleExit(0);
+});
