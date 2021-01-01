@@ -1,14 +1,23 @@
 const Discord = require("discord.js");
-const { DISCORD_PREFIX, DISCORD_TOKEN, GOOGLE_API_KEY } = process.env;
-const { GoogleSpreadsheet } = require("google-spreadsheet");
 const fs = require("fs");
+const { GoogleSpreadsheet } = require("google-spreadsheet");
 
-const readMe = fs.readFileSync("./README.md", "utf8");
+const { DISCORD_PREFIX, DISCORD_TOKEN, GOOGLE_API_KEY } = process.env;
+if (!DISCORD_PREFIX || !DISCORD_TOKEN || !GOOGLE_API_KEY) {
+  console.log("Missing required environmental variable");
+  return process.exit(0);
+}
+
+const readMe = fs.readFileSync("./README.md");
+
+/**load from file */
+const loadedUrls = fs.readFileSync("./custUrls.js");
+const loadedPrefixes = fs.readFileSync("./custPrefixes.js");
+
+const custUrls = new Map(loadedUrls);
+const custPrefixes = new Map(loadedPrefixes);
 
 const client = new Discord.Client();
-
-const custUrls = new Map();
-const custPrefixes = new Map();
 
 async function getDoc(message) {
   /** get channel info */
@@ -147,3 +156,21 @@ client.on("message", async (message) => {
 });
 
 client.login(DISCORD_TOKEN);
+
+function serialize(map) {
+  return JSON.stringify(Array.from(Object.entries(map)));
+}
+
+function handleExit(exitCode) {
+  /**write to file */
+  const serializedCustUrls = serialize(custUrls);
+  const serializedCustPrefixes = serialize(custPrefixes);
+  fs.writeFileSync('./custUrls.js',serializedCustUrls);
+  fs.writeFileSync('./custPrefixes.js',serializedCustPrefixes);
+  process.exit(exitCode);
+}
+
+process.on("uncaughtException", handleExit(1));
+process.on("unhandledRejection", handleExit(1));
+process.on("SIGTERM", handleExit(0));
+process.on("SIGINT", handleExit(0));
