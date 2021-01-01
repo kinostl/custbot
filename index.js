@@ -132,11 +132,20 @@ const commands = {
     if (doc) {
       const custReadMe =
         readMe +
-        ("\n\n**Custom Commands**\n" + Object.keys(doc.sheetsByTitle).join(", "));
+        ("\n\n**Custom Commands**\n" +
+          Object.keys(doc.sheetsByTitle).join(", "));
 
-      return await message.reply(custReadMe);
+      return await message.reply({
+        embed: {
+          description: custReadMe,
+        },
+      });
     } else {
-      return await message.reply(readMe);
+      return await message.reply({
+        embed: {
+          description: readMe,
+        },
+      });
     }
   },
 };
