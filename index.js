@@ -8,117 +8,124 @@ if (!DISCORD_PREFIX || !DISCORD_TOKEN || !GOOGLE_API_KEY) {
   return process.exit(0);
 }
 
-const readMe = fs.readFileSync("./README.md", "utf8");
-
-/**load from file */
-const loadedUrls = JSON.parse(fs.readFileSync("./custUrls.js", "utf8"));
-const loadedPrefixes = JSON.parse(fs.readFileSync("./custPrefixes.js", "utf8"));
-
-const custUrls = new Map(loadedUrls);
-const custPrefixes = new Map(loadedPrefixes);
+const knex = require("knex")({
+  client: "sqlite3",
+  connection: {
+    filename: "./entities.sqlite",
+  },
+  useNullAsDefault: true,
+});
 
 const client = new Discord.Client();
+let custSheetIds = new Map();
+let custPrefixes = new Map();
 
-async function getDoc(message) {
-  /** get channel info */
-  let sheetId = custUrls.get(message.channel.id);
-  if (!sheetId) sheetId = custUrls.get(message.guild.id);
-  if (!sheetId) return undefined;
+  const readMe = fs.readFileSync("./README.md", "utf8");
 
+async function startUp() {
+  const hasSheetIds = await knex.schema.hasTable("sheet_ids");
+  const hasCommands = await knex.schema.hasTable("commands");
+  const hasPrefixes = await knex.schema.hasTable("prefixes");
+  if (!hasSheetIds) {
+    await knex.schema.createTable("sheet_ids", (table) => {
+      table.string("associated_id").notNullable().primary();
+      table.string("sheet_id").notNullable();
+    });
+  }
+  if (!hasCommands) {
+    await knex.schema.createTable("commands", (table) => {
+      table.string("sheet_id").notNullable().primary();
+      table.string("commands").notNullable();
+    });
+  }
+  if (!hasPrefixes) {
+    await knex.schema.createTable("prefixes", (table) => {
+      table.string("associated_id").notNullable().primary();
+      table.string("prefix").notNullable();
+    });
+  }
+
+  /**load from file */
+  const loadedSheetIds = await knex("sheet_ids").select();
+  const loadedPrefixes = await knex("prefixes").select();
+
+  custSheetIds = new Map(loadedSheetIds);
+  custPrefixes = new Map(loadedPrefixes);
+
+  client.login(DISCORD_TOKEN);
+}
+
+
+async function getDoc(sheet_id) {
   /** get channels sheet */
-  const doc = new GoogleSpreadsheet(sheetId);
+  const doc = new GoogleSpreadsheet(sheet_id);
   doc.useApiKey(GOOGLE_API_KEY);
   await doc.loadInfo();
   return doc;
 }
 
+async function getSheetId(message) {
+  //try to pull from local database
+  //if that fails, get the doc and update the database
+  let config = await knex("sheet_ids")
+    .where({ associated_id: message.channel.id })
+    .first();
+  if (!config)
+    config = await knex("sheet_ids")
+      .where({ associated_id: message.guild.id })
+      .first();
+  if (!config || !config.sheet_id) return undefined;
+  const hasCache = await knex.schema.hasTable(config.sheet_id);
+  if (!hasCache) return undefined;
+  return config.sheet_id;
+}
+
 async function getEntityEmbed(message, args) {
-  const tab_name = args.shift().toLowerCase();
-  const entity_name = args.shift().toLowerCase();
+  const tab_name = args.shift();
+  const entity_name = args.shift();
 
-  /** get channel info */
-  const doc = await getDoc(message);
-  if (!doc)
-    return await message.reply(
-      "This channel or guild has no associated google sheets url."
-    );
+  const sheet_id = await getSheetId(message);
+  if (!sheet_id)
+    return "This channel or guild has no associated google sheets url.";
 
-  /** check if tab exists */
-  let correct_tab_name = Object.keys(doc.sheetsByTitle).find((table) =>
-    table.toLowerCase().startsWith(tab_name)
-  );
-  const sheet = doc.sheetsByTitle[correct_tab_name];
-  await sheet.loadHeaderRow();
-  if (
-    !sheet.headerValues.includes("name") &&
-    !sheet.headerValues.includes("Name")
-  )
-    return;
-  const rows = await sheet.getRows();
-
-  /** check if row exists in tab */
-  const entity = rows.find((el) => {
-    return (
-      (el.Name && el.Name.toLowerCase().startsWith(entity_name)) ||
-      (el.name && el.name.toLowerCase().startsWith(entity_name))
-    );
-  });
+  const entity = await knex(sheet_id)
+    .where({
+      entity_name: tab_name,
+      name: entity_name,
+    })
+    .first();
+  console.log("entity", entity);
 
   if (!entity)
-    return await message.reply(
-      `Sorry, could not find an entity of the name ${entity_name} on the ${tab_name} sheet.`
-    );
+    return `Sorry, could not find an entity of the name ${entity_name} on the ${tab_name} sheet.`;
 
-  const filteredSheetHeaders = sheet.headerValues.filter(
-    (curr) =>
-      curr.toLowerCase() != "name" &&
-      curr.toLowerCase() != "description" &&
-      !curr.toLowerCase().startsWith("_")
+  const embed = new Discord.MessageEmbed().addFields(
+    JSON.parse(entity.entity_details)
   );
-
-  let entity_details = Object.entries(entity).reduce((acc, col) => {
-    if (col[0] && col[1] && filteredSheetHeaders.includes(col[0])) {
-      acc.push({
-        name: col[0],
-        value: col[1],
-        inline: true,
-      });
-    }
-    return acc;
-  }, []);
-
-  const embed = new Discord.MessageEmbed().addFields(entity_details);
-  if (entity.name) embed.setTitle(entity.name);
-  if (entity.Name) embed.setTitle(entity.Name);
+  embed.setTitle(entity.name);
   if (entity.description) embed.setDescription(entity.description);
-  if (entity.Description) embed.setDescription(entity.Description);
   return embed;
 }
 
 async function sendEntityInfo(message, args) {
-  message.channel.startTyping();
-
   try {
     /** create the embed */
     const embed = await getEntityEmbed(message, args);
-
-    await message.reply(embed);
+    return await message.reply(embed);
   } catch (e) {
     /** let them know what didn't exist or that there might be a typo */
     console.error(e);
-    await message.reply("Something went wrong");
-  } finally {
-    message.channel.stopTyping();
+    return await message.reply("Something went wrong");
   }
 }
 
 const commands = {
   set: async function setUrl(message, args) {
-    let url = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(
+    let sheet_id = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(
       args[1].trim()
     );
-    if (url) {
-      url = url[1];
+    if (sheet_id) {
+      sheet_id = sheet_id[1];
     } else {
       return await message.reply("Not a valid url");
     }
@@ -139,10 +146,93 @@ const commands = {
       return await message.reply(
         "Sorry, you do not have permissions to make channel level decisions."
       );
-    const associatedId = isGlobal ? message.guild.id : message.channel.id;
+    const associated_id = isGlobal ? message.guild.id : message.channel.id;
+    await message.reply(
+      "Importing sheet, this may take a while. You will be informed when it is complete."
+    );
+    const sheetHasTable = await knex.schema.hasTable(sheet_id);
+    if (!sheetHasTable)
+      await knex.schema.createTable(sheet_id, (table) => {
+        table.string("uniq").notNullable().primary();
+        table.string("name").notNullable();
+        table.text("description");
+        table.string("entity_name").notNullable();
+        table.json("entity_details").notNullable();
+      });
 
-    custUrls.set(associatedId, url);
-    return await message.reply("Custom URL set.");
+    const doc = await getDoc(sheet_id);
+    const customCommandArr = [];
+    const entities=[];
+    for (const sheet of doc.sheetsByIndex) {
+      if (sheet.title.startsWith("_")) continue;
+      const rows = await sheet.getRows();
+      if (
+        !sheet.headerValues.includes("name") &&
+        !sheet.headerValues.includes("Name")
+      )
+        continue;
+      const filteredSheetHeaders = sheet.headerValues.filter(
+        (curr) =>
+          curr.toLowerCase() != "name" &&
+          curr.toLowerCase() != "description" &&
+          !curr.toLowerCase().startsWith("_")
+      );
+      customCommandArr.push(sheet.title);
+
+      const hasDescription = (sheet.headerValues.includes('description') || sheet.headerValues.includes('Description'));
+      const nameIndex = sheet.headerValues.includes("name") ? "name" : "Name";
+      const descriptionIndex = sheet.headerValues.includes("description")
+        ? "description"
+        : "Description";
+
+      for (const entity of rows) {
+        if(!entity[nameIndex]) continue;
+        const entity_details = Object.entries(entity).reduce((acc, col) => {
+          if (col[0] && col[1] && filteredSheetHeaders.includes(col[0])) {
+            acc.push({
+              name: col[0],
+              value: col[1],
+              inline: true,
+            });
+          }
+          return acc;
+        }, []);
+        const uniq = sheet.title+'_'+entity[nameIndex];
+        let entityEntry = {
+          uniq,
+          name: entity[nameIndex],
+          entity_name: sheet.title,
+          entity_details: JSON.stringify(entity_details),
+        }
+        if(hasDescription){
+          entityEntry.description = entity[descriptionIndex];
+        }
+
+        entities.push(
+          knex(sheet_id).insert(entityEntry).onConflict("uniq").merge()
+        );
+      }
+    }
+    const commands = customCommandArr.join(", ");
+
+    await knex("commands")
+      .insert({
+        sheet_id,
+        commands,
+      })
+      .onConflict('sheet_id')
+      .merge();
+
+    /**create entities array */
+
+    await Promise.all(entities);
+    await knex("sheet_ids")
+      .insert({ associated_id, sheet_id })
+      .onConflict("associated_id")
+      .merge();
+
+    custSheetIds.set(associated_id, sheet_id);
+    return await message.reply("Sheet imported!");
   },
   prefix: async function setPrefix(message, args) {
     let prefix = args[1].trim();
@@ -163,32 +253,24 @@ const commands = {
       return await message.reply(
         "Sorry, you do not have permissions to make channel level decisions."
       );
-    const associatedId = isGlobal ? message.guild.id : message.channel.id;
+    const associated_id = isGlobal ? message.guild.id : message.channel.id;
     if (!prefix) {
-      const foundPrefix = custPrefixes.get(associatedId);
+      const foundPrefix = custPrefixes.get(associated_id);
       if (!foundPrefix) return await message.reply(`Prefix is ${foundPrefix}`);
       return await message.reply(`Prefix is ${DISCORD_PREFIX}`);
     }
-    custPrefixes.set(associatedId, prefix);
+    custPrefixes.set(associated_id, prefix);
     return await message.reply(`Prefix has been updated to \`${prefix}\``);
   },
   help: async function help(message, args) {
     /** get channel info */
-    const doc = await getDoc(message);
-    if (doc) {
-      const customCommandArr = [];
-      for (const [key, sheet] of Object.entries(doc.sheetsByTitle)) {
-        if(sheet.title.startsWith('_')) continue;
-        await sheet.loadHeaderRow();
-        if (
-          sheet.headerValues.includes("name") ||
-          sheet.headerValues.includes("Name")
-        )
-          customCommandArr.push(key);
-      }
-      const customCommandList = customCommandArr.join(", ");
+    const sheet_id = await getSheetId(message);
+    if (sheet_id) {
+      const customCommandList = await knex("commands")
+        .where({ sheet_id })
+        .first();
       const customReadMe =
-        readMe + ("\n\n**Custom Commands**\n" + customCommandList);
+        readMe + ("\n\n**Custom Commands**\n" + customCommandList.commands);
 
       return await message.reply({
         embed: {
@@ -215,45 +297,14 @@ client.on("message", async (message) => {
   if (!prefix) prefix = DISCORD_PREFIX;
   if (!message.content.startsWith(prefix) || message.author.bot) return;
 
+  message.channel.startTyping();
   const args = message.content.slice(prefix.length).trim().split(/ +/);
   if (Object.keys(commands).includes(args[0])) {
-    return await commands[args[0]](message, args);
+    await commands[args[0]](message, args);
   } else {
-    return await sendEntityInfo(message, args);
+    await sendEntityInfo(message, args);
   }
+  message.channel.stopTyping();
 });
 
-client.login(DISCORD_TOKEN);
-
-function serialize(map) {
-  return JSON.stringify(Array.from(map.entries()));
-}
-
-function handleExit(exitCode) {
-  /**write to file */
-  const serializedCustUrls = serialize(custUrls);
-  const serializedCustPrefixes = serialize(custPrefixes);
-  fs.writeFileSync("./custUrls.js", serializedCustUrls, "utf8");
-  fs.writeFileSync("./custPrefixes.js", serializedCustPrefixes, "utf8");
-  console.log("Files written. Closing.");
-  process.exit(exitCode);
-}
-
-process.on("uncaughtException", (err, origin) => {
-  console.error(err);
-  console.error(origin);
-  handleExit(1);
-});
-process.on("unhandledRejection", (err, origin) => {
-  console.error(err);
-  console.error(origin);
-  handleExit(1);
-});
-process.on("SIGTERM", () => {
-  console.log("Shutting down");
-  handleExit(0);
-});
-process.on("SIGINT", () => {
-  console.log("Shutting down");
-  handleExit(0);
-});
+startUp();
