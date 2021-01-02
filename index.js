@@ -17,10 +17,9 @@ const knex = require("knex")({
 });
 
 const client = new Discord.Client();
-let custSheetIds = new Map();
 let custPrefixes = new Map();
 
-  const readMe = fs.readFileSync("./README.md", "utf8");
+const readMe = fs.readFileSync("./README.md", "utf8");
 
 async function startUp() {
   const hasSheetIds = await knex.schema.hasTable("sheet_ids");
@@ -46,10 +45,8 @@ async function startUp() {
   }
 
   /**load from file */
-  const loadedSheetIds = await knex("sheet_ids").select();
   const loadedPrefixes = await knex("prefixes").select();
 
-  custSheetIds = new Map(loadedSheetIds);
   custPrefixes = new Map(loadedPrefixes);
 
   client.login(DISCORD_TOKEN);
@@ -65,8 +62,6 @@ async function getDoc(sheet_id) {
 }
 
 async function getSheetId(message) {
-  //try to pull from local database
-  //if that fails, get the doc and update the database
   let config = await knex("sheet_ids")
     .where({ associated_id: message.channel.id })
     .first();
@@ -119,46 +114,18 @@ async function sendEntityInfo(message, args) {
   }
 }
 
-const commands = {
-  set: async function setUrl(message, args) {
-    let sheet_id = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(
-      args[1].trim()
-    );
-    if (sheet_id) {
-      sheet_id = sheet_id[1];
-    } else {
-      return await message.reply("Not a valid url");
-    }
-    const isGlobal =
-      args[2] &&
-      args[2].toLowerCase().startsWith("guild") &&
-      message.guild.available;
-    if (
-      isGlobal &&
-      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)
-    )
-      return await message.reply(
-        "Sorry, you do not have permissions to make guild level decisions."
-      );
-    if (
-      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_CHANNELS)
-    )
-      return await message.reply(
-        "Sorry, you do not have permissions to make channel level decisions."
-      );
-    const associated_id = isGlobal ? message.guild.id : message.channel.id;
+async function importSheet(sheet_id){
     await message.reply(
       "Importing sheet, this may take a while. You will be informed when it is complete."
     );
-    const sheetHasTable = await knex.schema.hasTable(sheet_id);
-    if (!sheetHasTable)
-      await knex.schema.createTable(sheet_id, (table) => {
-        table.string("uniq").notNullable().primary();
-        table.string("name").notNullable();
-        table.text("description");
-        table.string("entity_name").notNullable();
-        table.json("entity_details").notNullable();
-      });
+    await knex.schema.dropTableIfExists(sheet_id);
+    await knex.schema.createTable(sheet_id, (table) => {
+      table.string("uniq").notNullable().primary();
+      table.string("name").notNullable();
+      table.text("description");
+      table.string("entity_name").notNullable();
+      table.json("entity_details").notNullable();
+    });
 
     const doc = await getDoc(sheet_id);
     const customCommandArr = [];
@@ -226,12 +193,46 @@ const commands = {
     /**create entities array */
 
     await Promise.all(entities);
+}
+
+const commands = {
+  refresh: async function refreshDb(message, args) {
+    const sheet_id = await getSheetId(message);
+    await importSheet(sheet_id);
+  },
+  import: async function setUrl(message, args) {
+    let sheet_id = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(
+      args[1].trim()
+    );
+    if (sheet_id) {
+      sheet_id = sheet_id[1];
+    } else {
+      return await message.reply("Not a valid url");
+    }
+    const isGlobal =
+      args[2] &&
+      args[2].toLowerCase().startsWith("guild") &&
+      message.guild.available;
+    if (
+      isGlobal &&
+      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)
+    )
+      return await message.reply(
+        "Sorry, you do not have permissions to make guild level decisions."
+      );
+    if (
+      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_CHANNELS)
+    )
+      return await message.reply(
+        "Sorry, you do not have permissions to make channel level decisions."
+      );
+    const associated_id = isGlobal ? message.guild.id : message.channel.id;
+    await importSheet(sheet_id);
     await knex("sheet_ids")
       .insert({ associated_id, sheet_id })
       .onConflict("associated_id")
       .merge();
 
-    custSheetIds.set(associated_id, sheet_id);
     return await message.reply("Sheet imported!");
   },
   prefix: async function setPrefix(message, args) {
