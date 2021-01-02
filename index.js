@@ -32,7 +32,7 @@ async function getDoc(message) {
   return doc;
 }
 
-async function getEntityInfo(message, args) {
+async function getEntityEmbed(message, args) {
   const tab_name = args.shift().toLowerCase();
   const entity_name = args.shift().toLowerCase();
 
@@ -44,23 +44,40 @@ async function getEntityInfo(message, args) {
     );
 
   /** check if tab exists */
-  let sheets = doc.sheetsByTitle;
-  let correct_tab_name = Object.keys(sheets).find((table) =>
+  let correct_tab_name = Object.keys(doc.sheetsByTitle).find((table) =>
     table.toLowerCase().startsWith(tab_name)
   );
-  sheets = sheets[correct_tab_name];
-  sheets = await sheets.getRows();
+  const sheet = doc.sheetsByTitle[correct_tab_name];
+  await sheet.loadHeaderRow();
+  if (
+    !sheet.headerValues.includes("name") &&
+    !sheet.headerValues.includes("Name")
+  )
+    return;
+  const rows = await sheet.getRows();
 
   /** check if row exists in tab */
-  let row = sheets.find((el) => {
+  const entity = rows.find((el) => {
     return (
       (el.Name && el.Name.toLowerCase().startsWith(entity_name)) ||
       (el.name && el.name.toLowerCase().startsWith(entity_name))
     );
   });
 
-  let entity_details = Object.entries(row).reduce((acc, col) => {
-    if (col[0] && col[1] && row._sheet.headerValues.includes(col[0])) {
+  if (!entity)
+    return await message.reply(
+      `Sorry, could not find an entity of the name ${entity_name} on the ${tab_name} sheet.`
+    );
+
+  const filteredSheetHeaders = sheet.headerValues.filter(
+    (curr) =>
+      curr.toLowerCase() != "name" &&
+      curr.toLowerCase() != "description" &&
+      !curr.toLowerCase().startsWith("_")
+  );
+
+  let entity_details = Object.entries(entity).reduce((acc, col) => {
+    if (col[0] && col[1] && filteredSheetHeaders.includes(col[0])) {
       acc.push({
         name: col[0],
         value: col[1],
@@ -70,22 +87,25 @@ async function getEntityInfo(message, args) {
     return acc;
   }, []);
 
-  return entity_details;
+  const embed = new Discord.MessageEmbed().addFields(entity_details);
+  if (entity.name) embed.setTitle(entity.name);
+  if (entity.Name) embed.setTitle(entity.Name);
+  if (entity.description) embed.setDescription(entity.description);
+  if (entity.Description) embed.setDescription(entity.Description);
+  return embed;
 }
 
 async function sendEntityInfo(message, args) {
   message.channel.startTyping();
 
   try {
-    let entity_details = await getEntityInfo(message, args);
-
-    /** output the embed */
-    const embed = new Discord.MessageEmbed().addFields(entity_details);
+    /** create the embed */
+    const embed = await getEntityEmbed(message, args);
 
     await message.reply(embed);
   } catch (e) {
     /** let them know what didn't exist or that there might be a typo */
-    console.log(e);
+    console.error(e);
     await message.reply("Something went wrong");
   } finally {
     message.channel.stopTyping();
@@ -156,14 +176,23 @@ const commands = {
     /** get channel info */
     const doc = await getDoc(message);
     if (doc) {
-      const custReadMe =
-        readMe +
-        ("\n\n**Custom Commands**\n" +
-          Object.keys(doc.sheetsByTitle).join(", "));
+      const customCommandArr = [];
+      for (const [key, sheet] of Object.entries(doc.sheetsByTitle)) {
+        if(sheet.title.startsWith('_')) continue;
+        await sheet.loadHeaderRow();
+        if (
+          sheet.headerValues.includes("name") ||
+          sheet.headerValues.includes("Name")
+        )
+          customCommandArr.push(key);
+      }
+      const customCommandList = customCommandArr.join(", ");
+      const customReadMe =
+        readMe + ("\n\n**Custom Commands**\n" + customCommandList);
 
       return await message.reply({
         embed: {
-          description: custReadMe,
+          description: customReadMe,
         },
       });
     } else {
