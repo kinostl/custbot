@@ -54,9 +54,11 @@ if (!hasCustoms) {
   });
 }
 
-const loadedPrefixes = await knex("prefixes").pluck("associated_id", "prefix");
+const loadedPrefixes = await knex("prefixes").select("associated_id", "prefix");
 
-const custPrefixes = new Map(loadedPrefixes);
+const custPrefixes = new Map(
+  loadedPrefixes.map((lod) => [lod.associated_id, lod.prefix])
+);
 
 async function getDoc(sheet_id) {
   /** get channels sheet */
@@ -108,11 +110,15 @@ async function getEntityEmbed(message, args) {
     if (entity.description) embed.setDescription(entity.description);
   } else {
     if (custom.template) {
-      entity.entity_details.name = entity.name;
-      entity.entity_details.Name = entity.name;
-      entity.entity_details.description = entity.description;
-      entity.entity_details.description = entity.Description;
-      const formattedTemplate = format(custom.template, entity.entity_details);
+      const embed_details = {};
+      embed_details.name = entity.name;
+      embed_details.Name = entity.name;
+      embed_details.description = entity.description;
+      embed_details.Description = entity.description;
+      for(const detail of entity.entity_details){
+        embed_details[detail.name]=detail.value;
+      }
+      const formattedTemplate = format(custom.template, embed_details);
       embed.setDescription(formattedTemplate);
     } else {
       embed.addFields(entity.entity_details);
