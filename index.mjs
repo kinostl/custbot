@@ -20,7 +20,7 @@ const knex = Knex({
 
 const client = new Client();
 
-const readMe = readFileSync("./README.md", "utf8");
+const readMe = readFileSync("./help.md", "utf8");
 
 const hasSheetIds = await knex.schema.hasTable("sheet_ids");
 const hasCommands = await knex.schema.hasTable("commands");
