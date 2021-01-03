@@ -194,9 +194,11 @@ async function importSheet(sheet_id) {
   const doc = await getDoc(sheet_id);
   const commands = [];
   const entities = [];
+  const hasConfig = false;
   for (const sheet of doc.sheetsByIndex) {
     if (sheet.title.startsWith("_")) continue;
     if (sheet.title.toLowerCase() == "discord_config") {
+      hasConfig = true;
       await importDiscordSheet(sheet_id, sheet);
       continue;
     }
@@ -293,6 +295,7 @@ async function importSheet(sheet_id) {
       );
     }
   }
+  if (!hasConfig) await knex("customs").where({ sheet_id }).del();
   await Promise.all(commands);
   await Promise.all(entities);
 }
