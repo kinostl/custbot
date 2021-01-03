@@ -13,6 +13,10 @@ Lets you provide the bot with a google sheets url to import into its database. Y
 
 Feel free to make a copy of [this template](template.url) to save yourself some time!
 
+You can make a sheet named `discord_config` and customize entities with templates, and colors. The `discord_config` sheet needs a required column named `name`, an optional one named `template`, and an optional one named `color`.
+
+If an entity has a column named `image`, it will relay that image to the embed. `thumbnail` will similarly do the same thing. `url` will relay the url to the embed in the url spot.
+
 `>refresh`
 
 Reruns the import command for the channel or guild's associated spreadsheet.

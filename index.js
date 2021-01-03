@@ -1,6 +1,7 @@
 import { Client, MessageEmbed, Permissions } from "discord.js";
 import { readFileSync } from "fs";
 import { GoogleSpreadsheet } from "google-spreadsheet";
+import format from 'string-format';
 
 const { DISCORD_PREFIX, DISCORD_TOKEN, GOOGLE_API_KEY } = process.env;
 if (!DISCORD_PREFIX || !DISCORD_TOKEN || !GOOGLE_API_KEY) {
@@ -101,16 +102,37 @@ async function getEntityEmbed(message, args) {
       name: entity_name,
     })
     .first();
-  console.log("entity", entity);
 
   if (!entity)
     return `Sorry, could not find an entity of the name ${entity_name} on the ${tab_name} sheet.`;
 
-  const embed = new MessageEmbed().addFields(
-    JSON.parse(entity.entity_details)
-  );
+  const custom = await knex("customs").where({ sheet_id }).first();
+  const embed = new MessageEmbed();
   embed.setTitle(entity.name);
-  if (entity.description) embed.setDescription(entity.description);
+
+  if (!custom) {
+    embed.addFields(JSON.parse(entity.entity_details));
+    if (entity.description) embed.setDescription(entity.description);
+  } else {
+    if (custom.template) {
+      entity.entity_details.name = entity.name;
+      entity.entity_details.Name = entity.name;
+      entity.entity_details.description = entity.description;
+      entity.entity_details.description = entity.Description;
+      const formattedTemplate = format(custom.template, entity.entity_details);
+      embed.setDescription(formattedTemplate);
+    } else {
+      embed.addFields(JSON.parse(entity.entity_details));
+    }
+    if (custom.color) {
+      embed.setColor(custom.color);
+    }
+  }
+
+  if(entity.image) embed.setImage(entity.image);
+  if(entity.thumbnail) embed.setThumbnail(entity.thumbnail);
+  if(entity.url) embed.setUrl(entity.url);
+
   return embed;
 }
 
@@ -120,7 +142,7 @@ async function sendEntityInfo(message, args) {
     const embed = await getEntityEmbed(message, args);
     return await message.reply(embed);
   } catch (e) {
-    /** let them know what didn't exist or that there might be a typo */
+    /** TODO let them know what didn't exist or that there might be a typo */
     console.error(e);
     return await message.reply("Something went wrong");
   }
