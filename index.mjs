@@ -101,7 +101,7 @@ async function getEntityEmbed(message, args) {
     return `Sorry, could not find an entity of the name ${entity_name} on the ${tab_name} sheet.`;
 
   entity.entity_details = JSON.parse(entity.entity_details);
-  const custom = await knex("customs").where({ sheet_id }).first();
+  const custom = await knex("customs").where({ sheet_id, entity_name: tab_name }).first();
   const embed = new MessageEmbed();
   embed.setTitle(entity.name);
 
