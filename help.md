@@ -10,7 +10,7 @@ Change prefix - `>prefix [new_prefix] [channel|guild]`
 **Default Prefix** `>`  
 
 Change the sheet - `>import [url] [channel|guild]`  
-Feel free to make a copy of [this template](template.url) to save yourself some time!
+Feel free to make a copy of [this template](https://docs.google.com/spreadsheets/d/1yletu44kejejacfNpgU4o3PiirpVO4rSCv2W8p22oOc/edit?usp=sharing) to save yourself some time!
 
 Refresh the sheet - `>refresh`
 
