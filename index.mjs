@@ -1,15 +1,16 @@
 import { Client, MessageEmbed, Permissions } from "discord.js";
 import { readFileSync } from "fs";
 import { GoogleSpreadsheet } from "google-spreadsheet";
-import format from 'string-format';
+import format from "string-format";
+import Knex from "knex";
 
 const { DISCORD_PREFIX, DISCORD_TOKEN, GOOGLE_API_KEY } = process.env;
 if (!DISCORD_PREFIX || !DISCORD_TOKEN || !GOOGLE_API_KEY) {
   console.log("Missing required environmental variable");
-  return process.exit(0);
+  process.exit(0);
 }
 
-const knex = require("knex")({
+const knex = Knex({
   client: "sqlite3",
   connection: {
     filename: "./entities.sqlite",
@@ -18,53 +19,44 @@ const knex = require("knex")({
 });
 
 const client = new Client();
-let custPrefixes = new Map();
 
 const readMe = readFileSync("./README.md", "utf8");
 
-async function startUp() {
-  const hasSheetIds = await knex.schema.hasTable("sheet_ids");
-  const hasCommands = await knex.schema.hasTable("commands");
-  const hasPrefixes = await knex.schema.hasTable("prefixes");
-  const hasCustoms = await knex.schema.hasTable("customs");
-  if (!hasSheetIds) {
-    await knex.schema.createTable("sheet_ids", (table) => {
-      table.unique("associated_id").notNullable().primary();
-      table.string("sheet_id").notNullable();
-    });
-  }
-  if (!hasCommands) {
-    await knex.schema.createTable("commands", (table) => {
-      table.unique("sheet_id").notNullable().primary();
-      table.string("command").notNullable();
-    });
-  }
-  if (!hasPrefixes) {
-    await knex.schema.createTable("prefixes", (table) => {
-      table.unique("associated_id").notNullable().primary();
-      table.string("prefix").notNullable();
-    });
-  }
-  if (!hasCustoms){
-    await knex.schema.createTable("customs", (table) => {
-      table.unique("uniq").notNullable().primary();
-      table.string("sheet_id").notNullable();
-      table.string("entity_name").notNullable();
-      table.string("template");
-      table.string("color");
-    });
-  }
-
-  const loadedPrefixes = await knex("prefixes").pluck(
-    "associated_id",
-    "prefix"
-  );
-
-  custPrefixes = new Map(loadedPrefixes);
-
-  client.login(DISCORD_TOKEN);
+const hasSheetIds = await knex.schema.hasTable("sheet_ids");
+const hasCommands = await knex.schema.hasTable("commands");
+const hasPrefixes = await knex.schema.hasTable("prefixes");
+const hasCustoms = await knex.schema.hasTable("customs");
+if (!hasSheetIds) {
+  await knex.schema.createTable("sheet_ids", (table) => {
+    table.string("associated_id").notNullable().primary().unique();
+    table.string("sheet_id").notNullable();
+  });
+}
+if (!hasCommands) {
+  await knex.schema.createTable("commands", (table) => {
+    table.string("sheet_id").notNullable().primary().unique();
+    table.string("command").notNullable();
+  });
+}
+if (!hasPrefixes) {
+  await knex.schema.createTable("prefixes", (table) => {
+    table.string("associated_id").notNullable().primary().unique();
+    table.string("prefix").notNullable();
+  });
+}
+if (!hasCustoms) {
+  await knex.schema.createTable("customs", (table) => {
+    table.string("uniq").notNullable().primary().unique();
+    table.string("sheet_id").notNullable();
+    table.string("entity_name").notNullable();
+    table.string("template");
+    table.string("color");
+  });
 }
 
+const loadedPrefixes = await knex("prefixes").pluck("associated_id", "prefix");
+
+const custPrefixes = new Map(loadedPrefixes);
 
 async function getDoc(sheet_id) {
   /** get channels sheet */
@@ -106,12 +98,13 @@ async function getEntityEmbed(message, args) {
   if (!entity)
     return `Sorry, could not find an entity of the name ${entity_name} on the ${tab_name} sheet.`;
 
+  entity.entity_details = JSON.parse(entity.entity_details);
   const custom = await knex("customs").where({ sheet_id }).first();
   const embed = new MessageEmbed();
   embed.setTitle(entity.name);
 
   if (!custom) {
-    embed.addFields(JSON.parse(entity.entity_details));
+    embed.addFields(entity.entity_details);
     if (entity.description) embed.setDescription(entity.description);
   } else {
     if (custom.template) {
@@ -122,16 +115,17 @@ async function getEntityEmbed(message, args) {
       const formattedTemplate = format(custom.template, entity.entity_details);
       embed.setDescription(formattedTemplate);
     } else {
-      embed.addFields(JSON.parse(entity.entity_details));
+      embed.addFields(entity.entity_details);
     }
     if (custom.color) {
-      embed.setColor(custom.color);
+      embed.setColor(custom.color.toUpperCase());
     }
   }
 
-  if(entity.image) embed.setImage(entity.image);
-  if(entity.thumbnail) embed.setThumbnail(entity.thumbnail);
-  if(entity.url) embed.setUrl(entity.url);
+  if (entity.image) embed.setImage(entity.image);
+  if (entity.thumbnail) embed.setThumbnail(entity.thumbnail);
+  if (entity.url) embed.setURL(entity.url);
+  if (entity.color) embed.setColor(entity.color.toUpperCase());
 
   return embed;
 }
@@ -148,7 +142,7 @@ async function sendEntityInfo(message, args) {
   }
 }
 
-async function importDiscordSheet(sheet_id, rows) {
+async function importDiscordSheet(sheet_id, sheet) {
   const rows = await sheet.getRows();
   const customs = [];
 
@@ -172,122 +166,129 @@ async function importDiscordSheet(sheet_id, rows) {
     custom.entity_name = entity[nameIndex];
     if (hasTemplate) custom.template = entity[templateIndex];
     if (hasColor) custom.color = entity[colorIndex];
-    customs.push(knex("customs").insert(custom).onConflict('uniq').ignore());
+    customs.push(knex("customs").insert(custom).onConflict("uniq").ignore());
   }
   await Promise.all(customs);
 }
 
-async function importSheet(sheet_id){
-    await knex.schema.dropTableIfExists(sheet_id);
-    await knex.schema.createTable(sheet_id, (table) => {
-      table.unique("uniq").notNullable().primary();
-      table.string("name").notNullable();
-      table.text("description");
-      table.string("image");
-      table.string("thumbnail");
-      table.string("url");
-      table.string("entity_name").notNullable();
-      table.json("entity_details").notNullable();
-    });
+async function importSheet(sheet_id) {
+  await knex.schema.dropTableIfExists(sheet_id);
+  await knex.schema.createTable(sheet_id, (table) => {
+    table.string("uniq").notNullable().primary().unique();
+    table.string("name").notNullable();
+    table.text("description");
+    table.string("image");
+    table.string("thumbnail");
+    table.string("url");
+    table.string("color");
+    table.string("entity_name").notNullable();
+    table.json("entity_details").notNullable();
+  });
 
-    const doc = await getDoc(sheet_id);
-    const commands = [];
-    const entities=[];
-    for (const sheet of doc.sheetsByIndex) {
-      if (sheet.title.startsWith("_")) continue;
-      if (sheet.title.toLowerCase() == "discord_config") {
-        await importDiscordSheet(sheet_id, sheet);
-        continue;
-      }
-      if (
-        !sheet.headerValues.includes("name") &&
-        !sheet.headerValues.includes("Name")
-      )
-        continue;
-      const rows = await sheet.getRows();
-      const filteredSheetHeaders = sheet.headerValues.filter(
-        (curr) =>
-          curr.toLowerCase() != "name" &&
-          curr.toLowerCase() != "description" &&
-          curr.toLowerCase() != "image" &&
-          curr.toLowerCase() != "thumbnail" &&
-          curr.toLowerCase() != "url" &&
-          !curr.toLowerCase().startsWith("_")
-      );
-      
-      commands.push(
-      knex("commands")
-      .insert({
-        sheet_id,
-        command: sheet.title
-      })
-      .onConflict('sheet_id')
-      .merge()
-      );
-
-      const hasDescription =
-        sheet.headerValues.includes("description") ||
-        sheet.headerValues.includes("Description");
-      const hasImage =
-        sheet.headerValues.includes("image") ||
-        sheet.headerValues.includes("Image");
-      const hasThumbnail =
-        sheet.headerValues.includes("thumbnail") ||
-        sheet.headerValues.includes("Thumbnail");
-      const hasUrl =
-        sheet.headerValues.includes("url") ||
-        sheet.headerValues.includes("Url");
-      const nameIndex = sheet.headerValues.includes("name") ? "name" : "Name";
-      const descriptionIndex = sheet.headerValues.includes("description")
-        ? "description"
-        : "Description";
-      const imageIndex = sheet.headerValues.includes("image")
-        ? "image"
-        : "Image";
-      const thumbnailIndex = sheet.headerValues.includes("thumbnail")
-        ? "thumbnail"
-        : "Thumbnail";
-      const urlIndex = sheet.headerValues.includes("url") ? "url" : "Url";
-
-      for (const entity of rows) {
-        if(!entity[nameIndex]) continue;
-        const entity_details = Object.entries(entity).reduce((acc, col) => {
-          if (col[0] && col[1] && filteredSheetHeaders.includes(col[0])) {
-            acc.push({
-              name: col[0],
-              value: col[1],
-              inline: true,
-            });
-          }
-          return acc;
-        }, []);
-        const uniq = sheet.title+'_'+entity[nameIndex];
-        let entityEntry = {
-          uniq,
-          name: entity[nameIndex],
-          entity_name: sheet.title,
-          entity_details: JSON.stringify(entity_details),
-        }
-        if(hasDescription){
-          entityEntry.description = entity[descriptionIndex];
-        }
-        if(hasImage){
-          entityEntry.image = entity[imageIndex];
-        }
-        if(hasThumbnail){
-          entityEntry.thumbnail = entity[thumbnailIndex];
-        }
-        if(hasUrl){
-          entityEntry.url = entity[urlIndex];
-        }
-
-        entities.push(
-          knex(sheet_id).insert(entityEntry).onConflict("uniq").ignore()
-        );
-      }
+  const doc = await getDoc(sheet_id);
+  const commands = [];
+  const entities = [];
+  for (const sheet of doc.sheetsByIndex) {
+    if (sheet.title.startsWith("_")) continue;
+    if (sheet.title.toLowerCase() == "discord_config") {
+      await importDiscordSheet(sheet_id, sheet);
+      continue;
     }
-    await Promise.all(commands);
-    await Promise.all(entities);
+    await sheet.loadHeaderRow();
+    if (
+      !sheet.headerValues.includes("name") &&
+      !sheet.headerValues.includes("Name")
+    )
+      continue;
+    const rows = await sheet.getRows();
+    const filteredSheetHeaders = sheet.headerValues.filter(
+      (curr) =>
+        curr.toLowerCase() != "name" &&
+        curr.toLowerCase() != "description" &&
+        curr.toLowerCase() != "image" &&
+        curr.toLowerCase() != "thumbnail" &&
+        curr.toLowerCase() != "url" &&
+        curr.toLowerCase() != "color" &&
+        !curr.toLowerCase().startsWith("_")
+    );
+
+    commands.push(
+      knex("commands")
+        .insert({
+          sheet_id,
+          command: sheet.title,
+        })
+        .onConflict("sheet_id")
+        .merge()
+    );
+
+    const hasDescription =
+      sheet.headerValues.includes("description") ||
+      sheet.headerValues.includes("Description");
+    const hasImage =
+      sheet.headerValues.includes("image") ||
+      sheet.headerValues.includes("Image");
+    const hasThumbnail =
+      sheet.headerValues.includes("thumbnail") ||
+      sheet.headerValues.includes("Thumbnail");
+    const hasUrl =
+      sheet.headerValues.includes("url") || sheet.headerValues.includes("Url");
+    const hasColor =
+      sheet.headerValues.includes("color") ||
+      sheet.headerValues.includes("Color");
+    const nameIndex = sheet.headerValues.includes("name") ? "name" : "Name";
+    const descriptionIndex = sheet.headerValues.includes("description")
+      ? "description"
+      : "Description";
+    const imageIndex = sheet.headerValues.includes("image") ? "image" : "Image";
+    const thumbnailIndex = sheet.headerValues.includes("thumbnail")
+      ? "thumbnail"
+      : "Thumbnail";
+    const urlIndex = sheet.headerValues.includes("url") ? "url" : "Url";
+    const colorIndex = sheet.headerValues.includes("color") ? "color" : "Color";
+
+    for (const entity of rows) {
+      if (!entity[nameIndex]) continue;
+      const entity_details = Object.entries(entity).reduce((acc, col) => {
+        if (col[0] && col[1] && filteredSheetHeaders.includes(col[0])) {
+          acc.push({
+            name: col[0],
+            value: col[1],
+            inline: true,
+          });
+        }
+        return acc;
+      }, []);
+      const uniq = sheet.title + "_" + entity[nameIndex];
+      let entityEntry = {
+        uniq,
+        name: entity[nameIndex],
+        entity_name: sheet.title,
+        entity_details: JSON.stringify(entity_details),
+      };
+      if (hasDescription) {
+        entityEntry.description = entity[descriptionIndex];
+      }
+      if (hasImage) {
+        entityEntry.image = entity[imageIndex];
+      }
+      if (hasThumbnail) {
+        entityEntry.thumbnail = entity[thumbnailIndex];
+      }
+      if (hasUrl) {
+        entityEntry.url = entity[urlIndex];
+      }
+      if (hasColor) {
+        entityEntry.color = entity[colorIndex];
+      }
+
+      entities.push(
+        knex(sheet_id).insert(entityEntry).onConflict("uniq").ignore()
+      );
+    }
+  }
+  await Promise.all(commands);
+  await Promise.all(entities);
 }
 
 const commands = {
@@ -321,9 +322,7 @@ const commands = {
       return await message.reply(
         "Sorry, you do not have permissions to make guild level decisions."
       );
-    if (
-      !message.member.permissions.has(Permissions.FLAGS.MANAGE_CHANNELS)
-    )
+    if (!message.member.permissions.has(Permissions.FLAGS.MANAGE_CHANNELS))
       return await message.reply(
         "Sorry, you do not have permissions to make channel level decisions."
       );
@@ -354,9 +353,7 @@ const commands = {
       return await message.reply(
         "Sorry, you do not have permissions to make guild level decisions."
       );
-    if (
-      !message.member.permissions.has(Permissions.FLAGS.MANAGE_CHANNELS)
-    )
+    if (!message.member.permissions.has(Permissions.FLAGS.MANAGE_CHANNELS))
       return await message.reply(
         "Sorry, you do not have permissions to make channel level decisions."
       );
@@ -379,9 +376,10 @@ const commands = {
     if (sheet_id) {
       const customCommandList = await knex("commands")
         .where({ sheet_id })
-        .first();
+        .pluck('command');
+      console.log("customCommandList", customCommandList);
       const customReadMe =
-        readMe + ("\n\n**Custom Commands**\n" + customCommandList.commands);
+        readMe + ("\n\n**Custom Commands**\n" + customCommandList.join(", "));
 
       return await message.reply({
         embed: {
@@ -417,4 +415,4 @@ client.on("message", async (message) => {
   message.channel.stopTyping();
 });
 
-startUp();
+client.login(DISCORD_TOKEN);
