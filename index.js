@@ -1,6 +1,6 @@
-const Discord = require("discord.js");
-const fs = require("fs");
-const { GoogleSpreadsheet } = require("google-spreadsheet");
+import { Client, MessageEmbed, Permissions } from "discord.js";
+import { readFileSync } from "fs";
+import { GoogleSpreadsheet } from "google-spreadsheet";
 
 const { DISCORD_PREFIX, DISCORD_TOKEN, GOOGLE_API_KEY } = process.env;
 if (!DISCORD_PREFIX || !DISCORD_TOKEN || !GOOGLE_API_KEY) {
@@ -16,36 +16,48 @@ const knex = require("knex")({
   useNullAsDefault: true,
 });
 
-const client = new Discord.Client();
+const client = new Client();
 let custPrefixes = new Map();
 
-const readMe = fs.readFileSync("./README.md", "utf8");
+const readMe = readFileSync("./README.md", "utf8");
 
 async function startUp() {
   const hasSheetIds = await knex.schema.hasTable("sheet_ids");
   const hasCommands = await knex.schema.hasTable("commands");
   const hasPrefixes = await knex.schema.hasTable("prefixes");
+  const hasCustoms = await knex.schema.hasTable("customs");
   if (!hasSheetIds) {
     await knex.schema.createTable("sheet_ids", (table) => {
-      table.string("associated_id").notNullable().primary();
+      table.unique("associated_id").notNullable().primary();
       table.string("sheet_id").notNullable();
     });
   }
   if (!hasCommands) {
     await knex.schema.createTable("commands", (table) => {
-      table.string("sheet_id").notNullable().primary();
-      table.string("commands").notNullable();
+      table.unique("sheet_id").notNullable().primary();
+      table.string("command").notNullable();
     });
   }
   if (!hasPrefixes) {
     await knex.schema.createTable("prefixes", (table) => {
-      table.string("associated_id").notNullable().primary();
+      table.unique("associated_id").notNullable().primary();
       table.string("prefix").notNullable();
     });
   }
+  if (!hasCustoms){
+    await knex.schema.createTable("customs", (table) => {
+      table.unique("uniq").notNullable().primary();
+      table.string("sheet_id").notNullable();
+      table.string("entity_name").notNullable();
+      table.string("template");
+      table.string("color");
+    });
+  }
 
-  /**load from file */
-  const loadedPrefixes = await knex("prefixes").select();
+  const loadedPrefixes = await knex("prefixes").pluck(
+    "associated_id",
+    "prefix"
+  );
 
   custPrefixes = new Map(loadedPrefixes);
 
@@ -94,7 +106,7 @@ async function getEntityEmbed(message, args) {
   if (!entity)
     return `Sorry, could not find an entity of the name ${entity_name} on the ${tab_name} sheet.`;
 
-  const embed = new Discord.MessageEmbed().addFields(
+  const embed = new MessageEmbed().addFields(
     JSON.parse(entity.entity_details)
   );
   embed.setTitle(entity.name);
@@ -114,43 +126,106 @@ async function sendEntityInfo(message, args) {
   }
 }
 
+async function importDiscordSheet(sheet_id, rows) {
+  const rows = await sheet.getRows();
+  const customs = [];
+
+  const hasColor =
+    sheet.headerValues.includes("color") ||
+    sheet.headerValues.includes("Color");
+  const hasTemplate =
+    sheet.headerValues.includes("template") ||
+    sheet.headerValues.includes("Template");
+  const nameIndex = sheet.headerValues.includes("name") ? "name" : "Name";
+  const colorIndex = sheet.headerValues.includes("color") ? "color" : "Color";
+  const templateIndex = sheet.headerValues.includes("template")
+    ? "template"
+    : "Template";
+
+  await knex("customs").where({ sheet_id }).del();
+  for (const entity of rows) {
+    if (!entity[nameIndex]) continue;
+    const custom = { sheet_id };
+    custom.uniq = sheet_id + "_" + entity[nameIndex];
+    custom.entity_name = entity[nameIndex];
+    if (hasTemplate) custom.template = entity[templateIndex];
+    if (hasColor) custom.color = entity[colorIndex];
+    customs.push(knex("customs").insert(custom).onConflict('uniq').ignore());
+  }
+  await Promise.all(customs);
+}
+
 async function importSheet(sheet_id){
-    await message.reply(
-      "Importing sheet, this may take a while. You will be informed when it is complete."
-    );
     await knex.schema.dropTableIfExists(sheet_id);
     await knex.schema.createTable(sheet_id, (table) => {
-      table.string("uniq").notNullable().primary();
+      table.unique("uniq").notNullable().primary();
       table.string("name").notNullable();
       table.text("description");
+      table.string("image");
+      table.string("thumbnail");
+      table.string("url");
       table.string("entity_name").notNullable();
       table.json("entity_details").notNullable();
     });
 
     const doc = await getDoc(sheet_id);
-    const customCommandArr = [];
+    const commands = [];
     const entities=[];
     for (const sheet of doc.sheetsByIndex) {
       if (sheet.title.startsWith("_")) continue;
-      const rows = await sheet.getRows();
+      if (sheet.title.toLowerCase() == "discord_config") {
+        await importDiscordSheet(sheet_id, sheet);
+        continue;
+      }
       if (
         !sheet.headerValues.includes("name") &&
         !sheet.headerValues.includes("Name")
       )
         continue;
+      const rows = await sheet.getRows();
       const filteredSheetHeaders = sheet.headerValues.filter(
         (curr) =>
           curr.toLowerCase() != "name" &&
           curr.toLowerCase() != "description" &&
+          curr.toLowerCase() != "image" &&
+          curr.toLowerCase() != "thumbnail" &&
+          curr.toLowerCase() != "url" &&
           !curr.toLowerCase().startsWith("_")
       );
-      customCommandArr.push(sheet.title);
+      
+      commands.push(
+      knex("commands")
+      .insert({
+        sheet_id,
+        command: sheet.title
+      })
+      .onConflict('sheet_id')
+      .merge()
+      );
 
-      const hasDescription = (sheet.headerValues.includes('description') || sheet.headerValues.includes('Description'));
+      const hasDescription =
+        sheet.headerValues.includes("description") ||
+        sheet.headerValues.includes("Description");
+      const hasImage =
+        sheet.headerValues.includes("image") ||
+        sheet.headerValues.includes("Image");
+      const hasThumbnail =
+        sheet.headerValues.includes("thumbnail") ||
+        sheet.headerValues.includes("Thumbnail");
+      const hasUrl =
+        sheet.headerValues.includes("url") ||
+        sheet.headerValues.includes("Url");
       const nameIndex = sheet.headerValues.includes("name") ? "name" : "Name";
       const descriptionIndex = sheet.headerValues.includes("description")
         ? "description"
         : "Description";
+      const imageIndex = sheet.headerValues.includes("image")
+        ? "image"
+        : "Image";
+      const thumbnailIndex = sheet.headerValues.includes("thumbnail")
+        ? "thumbnail"
+        : "Thumbnail";
+      const urlIndex = sheet.headerValues.includes("url") ? "url" : "Url";
 
       for (const entity of rows) {
         if(!entity[nameIndex]) continue;
@@ -174,31 +249,35 @@ async function importSheet(sheet_id){
         if(hasDescription){
           entityEntry.description = entity[descriptionIndex];
         }
+        if(hasImage){
+          entityEntry.image = entity[imageIndex];
+        }
+        if(hasThumbnail){
+          entityEntry.thumbnail = entity[thumbnailIndex];
+        }
+        if(hasUrl){
+          entityEntry.url = entity[urlIndex];
+        }
 
         entities.push(
-          knex(sheet_id).insert(entityEntry).onConflict("uniq").merge()
+          knex(sheet_id).insert(entityEntry).onConflict("uniq").ignore()
         );
       }
     }
-    const commands = customCommandArr.join(", ");
-
-    await knex("commands")
-      .insert({
-        sheet_id,
-        commands,
-      })
-      .onConflict('sheet_id')
-      .merge();
-
-    /**create entities array */
-
+    await Promise.all(commands);
     await Promise.all(entities);
 }
 
 const commands = {
   refresh: async function refreshDb(message, args) {
     const sheet_id = await getSheetId(message);
+    message.channel.startTyping();
+    await message.reply(
+      "Refreshing sheet, this may take a while. You will be informed when it is complete."
+    );
     await importSheet(sheet_id);
+    message.channel.stopTyping();
+    return await message.reply("Sheet refreshed!");
   },
   import: async function setUrl(message, args) {
     let sheet_id = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(
@@ -215,24 +294,29 @@ const commands = {
       message.guild.available;
     if (
       isGlobal &&
-      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)
+      !message.member.permissions.has(Permissions.FLAGS.MANAGE_GUILD)
     )
       return await message.reply(
         "Sorry, you do not have permissions to make guild level decisions."
       );
     if (
-      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_CHANNELS)
+      !message.member.permissions.has(Permissions.FLAGS.MANAGE_CHANNELS)
     )
       return await message.reply(
         "Sorry, you do not have permissions to make channel level decisions."
       );
     const associated_id = isGlobal ? message.guild.id : message.channel.id;
+    message.channel.startTyping();
+    await message.reply(
+      "Importing sheet, this may take a while. You will be informed when it is complete."
+    );
     await importSheet(sheet_id);
     await knex("sheet_ids")
       .insert({ associated_id, sheet_id })
       .onConflict("associated_id")
       .merge();
 
+    message.channel.stopTyping();
     return await message.reply("Sheet imported!");
   },
   prefix: async function setPrefix(message, args) {
@@ -243,13 +327,13 @@ const commands = {
       message.guild.available;
     if (
       isGlobal &&
-      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)
+      !message.member.permissions.has(Permissions.FLAGS.MANAGE_GUILD)
     )
       return await message.reply(
         "Sorry, you do not have permissions to make guild level decisions."
       );
     if (
-      !message.member.permissions.has(Discord.Permissions.FLAGS.MANAGE_CHANNELS)
+      !message.member.permissions.has(Permissions.FLAGS.MANAGE_CHANNELS)
     )
       return await message.reply(
         "Sorry, you do not have permissions to make channel level decisions."
@@ -261,6 +345,10 @@ const commands = {
       return await message.reply(`Prefix is ${DISCORD_PREFIX}`);
     }
     custPrefixes.set(associated_id, prefix);
+    await knex("prefixes")
+      .insert({ associated_id, prefix })
+      .onConflict("associated_id")
+      .merge();
     return await message.reply(`Prefix has been updated to \`${prefix}\``);
   },
   help: async function help(message, args) {
@@ -298,7 +386,6 @@ client.on("message", async (message) => {
   if (!prefix) prefix = DISCORD_PREFIX;
   if (!message.content.startsWith(prefix) || message.author.bot) return;
 
-  message.channel.startTyping();
   const args = message.content.slice(prefix.length).trim().split(/ +/);
   if (Object.keys(commands).includes(args[0])) {
     await commands[args[0]](message, args);

@@ -11,6 +11,8 @@ Lets you customize what prefix calls the lookup bot. You can specify it for the 
 
 Lets you provide the bot with a google sheets url to import into its database. You can specify if it is for the channel the command is used in (default), or if it is the default url for the entire guild.
 
+Feel free to make a copy of [this template](template.url) to save yourself some time!
+
 `>refresh`
 
 Reruns the import command for the channel or guild's associated spreadsheet.
