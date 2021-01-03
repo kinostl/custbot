@@ -13,7 +13,7 @@ Lets you customize what prefix calls the lookup bot. You can specify it for the 
 
 Lets you provide the bot with a google sheets url to import into its database. You can specify if it is for the channel the command is used in (default), or if it is the default url for the entire guild.
 
-Feel free to make a copy of [this template](template.url) to save yourself some time!
+Feel free to make a copy of [this template](https://docs.google.com/spreadsheets/d/1yletu44kejejacfNpgU4o3PiirpVO4rSCv2W8p22oOc/edit?usp=sharing) to save yourself some time!
 
 You can make a sheet named `discord_config` and customize entities with templates, and colors. The `discord_config` sheet needs a required column named `name`, an optional one named `template`, and an optional one named `color` that will color the embed.
 
