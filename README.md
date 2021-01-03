@@ -1,5 +1,7 @@
 This bot lets you refer to a google sheet and gain an embed in a Discord channel.
 
+[Extended support server](https://discord.gg/83KyR23Jtm)
+
 [Click here to invite me to your server!](https://discord.com/api/oauth2/authorize?client_id=794175938728296469&permissions=67584&scope=bot)
 
 `>prefix [new_prefix] [channel|guild]`  
@@ -22,6 +24,10 @@ If an entity has a column named `image`, it will relay that image to the embed. 
 `>refresh`
 
 Reruns the import command for the channel or guild's associated spreadsheet.
+
+
+The bot currently expects all tabs in a spreadsheet to have a row of column headers, and a column header of `name`.
+The spreadsheet must be publicly visible to work with the bot. There is currently nothing that confirms this visibility in the bot.
 
 `>[entity_type] [entity_name]`  
 
