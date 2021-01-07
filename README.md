@@ -33,6 +33,6 @@ The spreadsheet must be publicly visible to work with the bot. There is currentl
 
 Searches the spreadsheet for the entity type and name. First it looks for the worksheet of the same name as `entity_title` then finds the first row with the name `entity_name`. After that, it uses all the columns in that row to create an embed and send it to the chat.
 
-`entity_name` does not currently support spaces.
+`entity_name` and `entity_type` do not currently support spaces.
 
 The bot currently expects all tabs in a spreadsheet to have a row of column headers, and a column header of `name`. The bot ignores any tabs that start with an `_`.
